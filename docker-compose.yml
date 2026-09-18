@@ -1,0 +1,137 @@
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: igeos-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-igeos_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-igeos_password}
+      POSTGRES_DB: ${POSTGRES_DB:-igeos_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - igeos-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: igeos-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD-SHELL", "echo srvr | nc localhost 2181 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - igeos-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: igeos-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_ZOOKEEPER_CONNECT_TIMEOUT_MS: 30000
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - igeos-network
+
+  producer-api:
+    build:
+      context: ./apps/producer-api
+    container_name: igeos-producer-api
+    restart: on-failure
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: "kafka:9092"
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-messages}
+    networks:
+      - igeos-network
+
+  consumer-api:
+    build:
+      context: ./apps/consumer-api
+    container_name: igeos-consumer-api
+    restart: on-failure
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-igeos_user}:${POSTGRES_PASSWORD:-igeos_password}@postgres:5432/${POSTGRES_DB:-igeos_db}
+      KAFKA_BROKERS: "kafka:9092"
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-messages}
+      KAFKA_GROUP_ID: "message-store"
+    networks:
+      - igeos-network
+
+  producer-web:
+    build:
+      context: ./apps/producer-web
+    container_name: igeos-producer-web
+    networks:
+      - igeos-network
+
+  consumer-web:
+    build:
+      context: ./apps/consumer-web
+    container_name: igeos-consumer-web
+    networks:
+      - igeos-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: igeos-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - producer-web
+      - consumer-web
+      - producer-api
+      - consumer-api
+    networks:
+      - igeos-network
+
+volumes:
+  postgres_data:
+  kafka_data:
+  zookeeper_data:
+  zookeeper_log:
+
+networks:
+  igeos-network:
+    driver: bridge
