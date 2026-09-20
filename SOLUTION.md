@@ -75,9 +75,8 @@ Execute na raiz do repositório: `docker compose up -d --build
 
 ### Teste 2: Persistência de Dados no PostgreSQL
 1. Encerrar todos os containers SEM remoção de volumes: docker compose down
-2. Encerrar todos os containers COM remoção de volumes: docker compose down -v
-3. Subir novamente: docker compose up -d
-4. Consultar as mensagens salvas via banco:`docker compose exec postgres psql -U igeos_user -d igeos_db -c "SELECT * FROM messages;"`
+2. Subir novamente: docker compose up -d
+3. Consultar as mensagens salvas via banco:`docker compose exec postgres psql -U igeos_user -d igeos_db -c "SELECT * FROM messages;"`
 
 ---
 
