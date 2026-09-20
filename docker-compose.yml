@@ -125,6 +125,24 @@ services:
       - consumer-api
     networks:
       - igeos-network
+  postgres-backup:
+    image: postgres:15-alpine
+    container_name: igeos-postgres-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: igeos_user
+      POSTGRES_PASSWORD: igeos_password
+      POSTGRES_DB: igeos_db
+    volumes:
+      - ./backups:/backups
+      - ./scripts:/scripts:ro
+    entrypoint: ["sh", "-c", "crond -f -d 8"]
+    networks:
+      - igeos-network
 
 volumes:
   postgres_data:
