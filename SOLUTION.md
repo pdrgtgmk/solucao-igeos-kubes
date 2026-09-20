@@ -78,3 +78,52 @@ Execute na raiz do repositório: `docker compose up -d --build
 2. Encerrar todos os containers COM remoção de volumes: docker compose down -v
 3. Subir novamente: docker compose up -d
 4. Consultar as mensagens salvas via banco:`docker compose exec postgres psql -U igeos_user -d igeos_db -c "SELECT * FROM messages;"`
+
+---
+
+---
+
+## 5. Estimativa de Tempo, Dificuldades e Evoluções Futuras
+
+### 5.1. Estimativa de Tempo Dedicado
+O desenvolvimento da solução foi executado em ciclos incrementais, totalizando aproximadamente **12 a 14 horas** de trabalho técnico divididas nas seguintes etapas:
+
+* **Análise e Diagnóstico de Contrato (2h):** Leitura do código-fonte, inspeção do comportamento do Pydantic Settings v2 nas APIs e mapeamento dos requisitos de variáveis de ambiente (`KAFKA_BROKERS`, `DATABASE_URL`).
+* **Ajuste do Build e Runtime dos Containers (3h):** Atualização do ambiente para Python 3.12, transição dos Dockerfiles para o gerenciador `uv` (`uv pip install --frozen`), e resolução da ordem de execução do script `prepare.py` na `consumer-api`.
+* **Orquestração e Estabilização de Rede/Volumes (3h):** Configuração do Nginx como reverse proxy na porta 80, isolamento dos serviços na rede interna do Docker e solução do conflito de ID do cluster no Kafka através da persistência de volumes do Zookeeper (`InconsistentClusterIdException`).
+* **Implementação da Funcionalidade Avançada de Backup (2h):** Criação da arquitetura de sidecar container (`postgres-backup`), scripts em Bash com tratamento rigoroso de pipes (`set -euo pipefail`) e fundamentação teórica da retenção de 7 dias baseada no padrão GFS/SRE.
+* **Validação, Testes de Resiliência e Documentação (3h):** Execução da matriz de testes de ponta a ponta (cenários de *downtime* de consumidor e persistência de banco), fatiamento do histórico em commits atômicos no Git e redação da documentação técnica no `SOLUTION.md`.
+
+---
+
+### 5.2. Principais Dificuldades Encontradas
+
+1. **Divergência de Contrato entre Compose e Aplicação (Pydantic Settings):**
+   * *Desafio:* A `producer-api` entrava em crash loop acusando falha na conexão com o Kafka por buscar o broker em `localhost:9092`.
+   * *Resolução:* Identificou-se que a classe `Settings` exigia a chave estrita `validation_alias="KAFKA_BROKERS"`, o que exigiu alinhar a camada de orquestração do Docker Compose sem alterar a regra de negócio da aplicação.
+
+2. **Incompatibilidade da Versão Base do Python com a Lockfile:**
+   * *Desafio:* A imagem base original continha uma versão defasada do Python, inviabilizando a resolução de dependências modernas travadas no `uv.lock`.
+   * *Resolução:* Padronizou-se o build sobre `python:3.12-slim` integrado ao `uv`, garantindo instalações leves e determinísticas sem quebrar extensões em C.
+
+3. **Inconsistência do Cluster ID no Kafka ao Reiniciar a Stack:**
+   * *Desafio:* Executar `docker compose down` e subir o ambiente novamente causava erros de `InconsistentClusterIdException` devido à perda de estado do Zookeeper.
+   * *Resolução:* Mapeamento de volumes persistentes dedicados ao Zookeeper (`zookeeper_data` e `zookeeper_log`), garantindo sincronia permanente de metadados com o Kafka.
+
+---
+
+### 5.3. Próximos Passos e Prioridades (Visão de Futuro)
+
+Caso houvesse mais tempo dedicado ao projeto, eu priorizaria as seguintes evoluções de engenharia:
+
+1. **Observabilidade e Monitoramento (Metrics & Tracing):**
+   * Integração de exportadores do Prometheus (`postgres-exporter`, `kafka-exporter`) e dashboards do Grafana para monitorar taxas de processamento de mensagens, saturação de tópicos no Kafka e saúde das conexões no PostgreSQL.
+
+2. **Pipeline de CI/CD e Validações Automatizadas:**
+   * Criação de workflows do GitHub Actions para rodar testes unitários, checagem de estilo com `ruff` e varredura de segurança contra vulnerabilidades em imagens Docker (`trivy` ou `grype`) a cada Pull Request.
+
+3. **Gerenciamento Seguro de Segredos (Secret Management):**
+   * Transição das credenciais hardcoded no `.env.example` para uma solução de gestão de segredos como o HashiCorp Vault ou Docker Secrets, garantindo que credenciais de produção não trafeguem no Compose.
+
+4. **Hardening de Segurança nos Containers:**
+   * Configuração de usuários não-root (`non-root user`) nos Dockerfiles das APIs e Nginx para mitigar riscos de elevação de privilégios e seguir os princípios de privilégio mínimo em produção.
